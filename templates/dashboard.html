@@ -8,11 +8,6 @@
         <h3>Total Servers</h3>
         <h2>{{ servers|length }}</h2>
     </div>
-
-    <div class="card green">
-        <h3>Live Response</h3>
-        <h2 id="liveResponse">0 ms</h2>
-    </div>
 </div>
 
 <div class="add-box">
@@ -49,47 +44,5 @@
 
 </table>
 </div>
-
-<div class="chart-box">
-<h3>Monthly SLA</h3>
-<canvas id="slaChart"></canvas>
-</div>
-
-<script>
-function updateLive(){
-    document.getElementById("liveResponse").innerText =
-        Math.floor(Math.random()*200)+" ms";
-}
-setInterval(updateLive,2000);
-
-{% if servers|length == 0 %}
-var labels=[];
-var data=[];
-{% else %}
-var labels=["Jan","Feb","Mar","Apr","May","Jun"];
-var data=[99.5,99.7,99.8,99.9,99.6,99.95];
-{% endif %}
-
-new Chart(document.getElementById("slaChart"),{
-    type:'line',
-    data:{
-        labels:labels,
-        datasets:[{
-            label:'SLA %',
-            data:data,
-            borderColor:'#00f5d4',
-            fill:false,
-            tension:0.4
-        }]
-    },
-    options:{
-        plugins:{legend:{labels:{color:'#fff'}}},
-        scales:{
-            x:{ticks:{color:'#fff'}},
-            y:{ticks:{color:'#fff'}}
-        }
-    }
-});
-</script>
 
 {% endblock %}
