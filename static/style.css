@@ -1,0 +1,29 @@
+body.dark-mode {
+background: #121212;
+color: #ffffff;
+}
+
+.card {
+border-radius: 15px;
+background: #1e1e1e;
+color: white;
+}
+
+.stat-card {
+padding: 20px;
+border-radius: 15px;
+color: white;
+}
+
+.table {
+color: white;
+}
+
+.login-card {
+background: #1e1e1e;
+border-radius: 20px;
+}
+
+.navbar {
+border-bottom: 2px solid #00ffcc;
+}

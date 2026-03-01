@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h3 class="mb-4 text-light">Infrastructure Overview</h3>
+
+<div class="row mb-4 text-center">
+
+<div class="col-md-3">
+<div class="card stat-card bg-primary">
+<h6>Total Servers</h6>
+<h3>{{ total }}</h3>
+</div>
+</div>
+
+<div class="col-md-3">
+<div class="card stat-card bg-success">
+<h6>UP</h6>
+<h3>{{ up }}</h3>
+</div>
+</div>
+
+<div class="col-md-3">
+<div class="card stat-card bg-warning text-dark">
+<h6>SLA %</h6>
+<h3>{{ sla }}%</h3>
+</div>
+</div>
+
+<div class="col-md-3">
+<div class="card stat-card bg-danger">
+<h6>Incidents</h6>
+<h3>{{ incidents_count }}</h3>
+</div>
+</div>
+
+</div>
+
+<!-- Health Graphs -->
+<div class="row mb-4">
+
+<div class="col-md-4">
+<div class="card p-3 shadow">
+<h6>CPU Usage</h6>
+<canvas id="cpuChart"></canvas>
+</div>
+</div>
+
+<div class="col-md-4">
+<div class="card p-3 shadow">
+<h6>RAM Usage</h6>
+<canvas id="ramChart"></canvas>
+</div>
+</div>
+
+<div class="col-md-4">
+<div class="card p-3 shadow">
+<h6>Disk Usage</h6>
+<canvas id="diskChart"></canvas>
+</div>
+</div>
+
+</div>
+
+<!-- Add Server -->
+<div class="card p-4 shadow mb-4">
+<h5>Add New Server</h5>
+<form method="POST">
+<input type="text" name="name" class="form-control mb-2" placeholder="Server Name" required>
+<input type="text" name="url" class="form-control mb-3" placeholder="https://example.com" required>
+<button class="btn btn-dark w-100">Add & Monitor</button>
+</form>
+</div>
+
+<!-- Server Table -->
+<div class="card p-3 shadow mb-4">
+<h5>Server Status</h5>
+<table class="table table-dark table-striped">
+<tr>
+<th>Name</th>
+<th>URL</th>
+<th>Status</th>
+<th>Response</th>
+<th>Date</th>
+</tr>
+
+{% for s in servers %}
+<tr>
+<td>{{ s[2] }}</td>
+<td>{{ s[3] }}</td>
+<td>
+<span class="badge bg-{{ 'success' if s[4]=='UP' else 'danger' }}">
+{{ s[4] }}
+</span>
+</td>
+<td>{{ s[5] }} sec</td>
+<td>{{ s[6] }}</td>
+</tr>
+{% endfor %}
+</table>
+</div>
+
+<script>
+
+new Chart(document.getElementById("cpuChart"), {
+type: "doughnut",
+data: {
+labels:["Used","Free"],
+datasets:[{
+data:[{{ cpu }}, {{ 100-cpu }}],
+backgroundColor:["#ff6384","#36a2eb"]
+}]
+}
+});
+
+new Chart(document.getElementById("ramChart"), {
+type: "doughnut",
+data: {
+labels:["Used","Free"],
+datasets:[{
+data:[{{ ram }}, {{ 100-ram }}],
+backgroundColor:["#ff9f40","#4bc0c0"]
+}]
+}
+});
+
+new Chart(document.getElementById("diskChart"), {
+type: "doughnut",
+data: {
+labels:["Used","Free"],
+datasets:[{
+data:[{{ disk }}, {{ 100-disk }}],
+backgroundColor:["#9966ff","#ffcd56"]
+}]
+}
+});
+
+</script>
+
+{% endblock %}

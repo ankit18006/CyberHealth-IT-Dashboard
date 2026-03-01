@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h3 class="mb-4 text-light">Admin Analytics Panel</h3>
+
+<div class="row text-center mb-4">
+
+<div class="col-md-6">
+<div class="card stat-card bg-info">
+<h6>Total Servers</h6>
+<h3>{{ total_servers }}</h3>
+</div>
+</div>
+
+<div class="col-md-6">
+<div class="card stat-card bg-danger">
+<h6>Total Incidents</h6>
+<h3>{{ total_incidents }}</h3>
+</div>
+</div>
+
+</div>
+
+<div class="card p-4 shadow">
+<h5>Monthly SLA Trend</h5>
+<canvas id="slaChart"></canvas>
+</div>
+
+<script>
+new Chart(document.getElementById("slaChart"), {
+type:"line",
+data:{
+labels: {{ dates|safe }},
+datasets:[{
+label:"Server Status (1=UP, 0=DOWN)",
+data: {{ status_values|safe }},
+borderColor:"#4bc0c0",
+fill:false
+}]
+}
+});
+</script>
+
+{% endblock %}
