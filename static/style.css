@@ -57,15 +57,12 @@ box-shadow:0 0 15px rgba(0,0,0,0.5);
 .blue{background:#2563eb;}
 .green{background:#16a34a;}
 .yellow{background:#facc15;color:black;}
-.red{background:#dc2626;}
 
-.auth-box{
-max-width:400px;
-margin:100px auto;
+.add-box{
+margin:20px 0;
 background:#1e293b;
-padding:30px;
+padding:20px;
 border-radius:15px;
-text-align:center;
 }
 
 input{
@@ -79,12 +76,14 @@ color:white;
 border-radius:8px;
 }
 
-button{
+button, .btn{
 background:#00f5d4;
 border:none;
-padding:10px 20px;
+padding:8px 15px;
 border-radius:8px;
 cursor:pointer;
+text-decoration:none;
+color:black;
 }
 
 .table-box{
@@ -97,6 +96,7 @@ border-radius:15px;
 table{
 width:100%;
 border-collapse:collapse;
+margin-top:10px;
 }
 
 th, td{
