@@ -209,6 +209,31 @@ def export_pdf():
     doc.build(elements)
     return send_file(file_path,as_attachment=True)
 
+# ---------------- REGISTER ----------------
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        password = generate_password_hash(request.form["password"])
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        INSERT INTO users(name,email,password,role)
+        VALUES (?,?,?,?)
+        """, (
+            request.form["name"],
+            request.form["email"],
+            password,
+            "user"
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/")
+
+    return render_template("register.html")
+
 # ---------------- LOGOUT ----------------
 @app.route("/logout")
 def logout():
