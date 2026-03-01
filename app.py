@@ -147,7 +147,17 @@ def monitoring_loop():
         conn.close()
         time.sleep(CHECK_INTERVAL)
 
-threading.Thread(target=monitoring_loop, daemon=True).start()
+monitor_started = False
+
+def start_monitor():
+    global monitor_started
+    if not monitor_started:
+        monitor_started = True
+        threading.Thread(target=monitoring_loop, daemon=True).start()
+
+@app.before_first_request
+def activate_monitor():
+    start_monitor()
 
 # ---------------- ROUTES ----------------
 @app.route("/")
