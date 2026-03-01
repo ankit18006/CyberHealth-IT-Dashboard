@@ -3,7 +3,6 @@
 <head>
     <title>CyberHealth Enterprise</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -11,19 +10,19 @@
 
 <div class="layout">
 
-    <!-- SIDEBAR -->
     <div class="sidebar">
         <h2>CyberHealth</h2>
-        <a href="/dashboard">Dashboard</a>
 
         {% if session.get("role") == "admin" %}
-        <a href="/admin">Admin Panel</a>
+            <a href="/admin">Admin Dashboard</a>
+            <a href="/dashboard">User View</a>
+        {% else %}
+            <a href="/dashboard">Dashboard</a>
         {% endif %}
 
         <a href="/logout">Logout</a>
     </div>
 
-    <!-- MAIN CONTENT -->
     <div class="main">
         {% block content %}{% endblock %}
     </div>
