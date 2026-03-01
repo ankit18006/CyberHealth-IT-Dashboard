@@ -3,9 +3,12 @@ import threading
 import time
 import requests
 import concurrent.futures
+import io
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, request, redirect, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.lib.styles import getSampleStyleSheet
 
 app = Flask(__name__)
 app.secret_key = "enterprise_secret"
@@ -13,8 +16,9 @@ DB = "database.db"
 
 CHECK_INTERVAL = 30
 FAIL_THRESHOLD = 2
+monitor_started = False
 
-# ---------------- DATABASE ----------------
+# ---------------- DATABASE INIT ----------------
 def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -59,21 +63,33 @@ def init_db():
         status TEXT
     )""")
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS login_attempts(
+        id INTEGER PRIMARY KEY,
+        email TEXT,
+        timestamp TEXT,
+        success INTEGER
+    )""")
+
+    # Default Admin
     c.execute("SELECT * FROM users WHERE role='admin'")
     if not c.fetchone():
         c.execute("""
         INSERT INTO users(name,email,password,role)
         VALUES(?,?,?,?)
-        """,("Admin","admin@cyber.com",
-             generate_password_hash("admin123"),
-             "admin"))
+        """,(
+            "Super Admin",
+            "admin@cyberhealth.com",
+            generate_password_hash("admin123"),
+            "admin"
+        ))
 
     conn.commit()
     conn.close()
 
 init_db()
 
-# ---------------- SLA ENGINE ----------------
+# ---------------- SLA CALC ----------------
 def calculate_sla(server_id):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -82,21 +98,51 @@ def calculate_sla(server_id):
     c.execute("SELECT COUNT(*) FROM checks WHERE server_id=? AND status='DOWN'", (server_id,))
     down = c.fetchone()[0]
     conn.close()
+
     if total == 0:
         return 0
     return round(((total - down) / total) * 100, 2)
 
-# ---------------- MONITORING ENGINE ----------------
+# ---------------- MONTHLY SLA ----------------
+def get_monthly_sla():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT strftime('%m', timestamp), COUNT(*),
+           SUM(CASE WHEN status='DOWN' THEN 1 ELSE 0 END)
+    FROM checks
+    GROUP BY strftime('%m', timestamp)
+    ORDER BY strftime('%m', timestamp)
+    """)
+
+    rows = c.fetchall()
+    conn.close()
+
+    labels, data = [], []
+
+    for row in rows:
+        month, total, down = row
+        down = down if down else 0
+
+        sla = 0 if total == 0 else round(((total - down) / total) * 100, 2)
+        labels.append(month)
+        data.append(sla)
+
+    return labels, data
+
+# ---------------- MONITOR ENGINE ----------------
 def check_server(server):
     server_id, name, ip, user_id, status, rt, total, failed, cons = server
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     try:
         start = time.time()
         requests.get(ip, timeout=5)
-        response = round((time.time() - start)*1000,2)
-        return server_id,"UP",response,0,now
+        response = round((time.time() - start) * 1000, 2)
+        return server_id, "UP", response, 0, now
     except:
-        return server_id,"DOWN",0,1,now
+        return server_id, "DOWN", 0, 1, now
 
 def monitoring_loop():
     while True:
@@ -108,7 +154,8 @@ def monitoring_loop():
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             results = executor.map(check_server, servers)
 
-        for server_id,status,response,fail_inc,now in results:
+        for server_id, status, response, fail_inc, now in results:
+
             c.execute("""
             INSERT INTO checks(server_id,status,response_time,timestamp)
             VALUES(?,?,?,?)
@@ -117,10 +164,7 @@ def monitoring_loop():
             c.execute("SELECT consecutive_fail FROM servers WHERE id=?", (server_id,))
             cons = c.fetchone()[0]
 
-            if status == "DOWN":
-                cons += 1
-            else:
-                cons = 0
+            cons = cons + 1 if status == "DOWN" else 0
 
             c.execute("""
             UPDATE servers
@@ -129,7 +173,6 @@ def monitoring_loop():
             WHERE id=?
             """,(status,response,cons,fail_inc,server_id))
 
-            # INCIDENT LOGIC
             if cons >= FAIL_THRESHOLD and status=="DOWN":
                 c.execute("""
                 INSERT INTO incidents(server_id,start_time,status)
@@ -147,8 +190,6 @@ def monitoring_loop():
         conn.close()
         time.sleep(CHECK_INTERVAL)
 
-monitor_started = False
-
 def start_monitor():
     global monitor_started
     if not monitor_started:
@@ -162,13 +203,13 @@ def activate_monitor():
 # ---------------- ROUTES ----------------
 @app.route("/")
 def home():
-    return redirect("/login")
+    return render_template("landing.html")
 
 @app.route("/register", methods=["GET","POST"])
 def register():
-    if request.method=="POST":
-        conn=sqlite3.connect(DB)
-        c=conn.cursor()
+    if request.method == "POST":
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
         c.execute("""
         INSERT INTO users(name,email,password,role)
         VALUES(?,?,?,?)
@@ -183,16 +224,30 @@ def register():
 
 @app.route("/login", methods=["GET","POST"])
 def login():
-    if request.method=="POST":
-        conn=sqlite3.connect(DB)
-        c=conn.cursor()
-        c.execute("SELECT * FROM users WHERE email=?",(request.form["email"],))
-        user=c.fetchone()
-        conn.close()
-        if user and check_password_hash(user[3],request.form["password"]):
-            session["user_id"]=user[0]
-            session["role"]=user[4]
-            return redirect("/dashboard")
+    if request.method == "POST":
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE email=?", (request.form["email"],))
+        user = c.fetchone()
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if user and check_password_hash(user[3], request.form["password"]):
+            c.execute("INSERT INTO login_attempts(email,timestamp,success) VALUES(?,?,1)",
+                      (request.form["email"], now))
+            conn.commit()
+            conn.close()
+
+            session["user_id"] = user[0]
+            session["role"] = user[4]
+
+            return redirect("/admin" if user[4]=="admin" else "/dashboard")
+        else:
+            c.execute("INSERT INTO login_attempts(email,timestamp,success) VALUES(?,?,0)",
+                      (request.form["email"], now))
+            conn.commit()
+            conn.close()
+
     return render_template("login.html")
 
 @app.route("/dashboard", methods=["GET","POST"])
@@ -200,10 +255,13 @@ def dashboard():
     if "user_id" not in session:
         return redirect("/login")
 
-    conn=sqlite3.connect(DB)
-    c=conn.cursor()
+    if session["role"] == "admin":
+        return redirect("/admin")
 
-    if request.method=="POST":
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    if request.method == "POST":
         c.execute("""
         INSERT INTO servers(name,ip,user_id)
         VALUES(?,?,?)
@@ -212,37 +270,103 @@ def dashboard():
              session["user_id"]))
         conn.commit()
 
-    if session["role"]=="admin":
-        c.execute("SELECT * FROM servers")
-    else:
-        c.execute("SELECT * FROM servers WHERE user_id=?",(session["user_id"],))
+    c.execute("SELECT * FROM servers WHERE user_id=?", (session["user_id"],))
+    servers = c.fetchall()
 
-    servers=c.fetchall()
-
-    sla_data=[]
-    for s in servers:
-        sla_data.append(calculate_sla(s[0]))
+    sla_data = [calculate_sla(s[0]) for s in servers]
 
     conn.close()
-    return render_template("dashboard.html",servers=servers,sla_data=sla_data)
+    return render_template("dashboard.html",
+                           servers=servers,
+                           sla_data=sla_data)
 
 @app.route("/admin")
 def admin():
-    if session.get("role")!="admin":
+    if session.get("role") != "admin":
         return redirect("/dashboard")
-    conn=sqlite3.connect(DB)
-    c=conn.cursor()
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
     c.execute("SELECT * FROM users")
-    users=c.fetchall()
+    users = c.fetchall()
+
+    c.execute("SELECT * FROM servers")
+    servers = c.fetchall()
+
     c.execute("SELECT * FROM incidents")
-    incidents=c.fetchall()
+    incidents = c.fetchall()
+
+    c.execute("SELECT * FROM login_attempts ORDER BY id DESC LIMIT 20")
+    login_attempts = c.fetchall()
+
+    labels, monthly_sla = get_monthly_sla()
+
+    total_checks = sum([s[6] for s in servers])
+    total_failed = sum([s[7] for s in servers])
+    combined_sla = 0 if total_checks==0 else round(((total_checks-total_failed)/total_checks)*100,2)
+
+    risk_score = 0
+    if combined_sla < 98:
+        risk_score += 50
+    if len(incidents) > 5:
+        risk_score += 50
+
+    risk_level = "LOW"
+    if risk_score >= 80:
+        risk_level = "HIGH"
+    elif risk_score >= 40:
+        risk_level = "MEDIUM"
+
     conn.close()
-    return render_template("admin.html",users=users,incidents=incidents)
+
+    return render_template("admin.html",
+                           users=users,
+                           servers=servers,
+                           incidents=incidents,
+                           login_attempts=login_attempts,
+                           combined_sla=combined_sla,
+                           monthly_labels=labels,
+                           monthly_sla=monthly_sla,
+                           risk_score=risk_score,
+                           risk_level=risk_level)
+
+@app.route("/export_incidents_pdf")
+def export_incidents_pdf():
+    if session.get("role") != "admin":
+        return redirect("/dashboard")
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT * FROM incidents")
+    incidents = c.fetchall()
+    conn.close()
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer)
+    elements = []
+    style = getSampleStyleSheet()
+
+    elements.append(Paragraph("CyberHealth Incident Report", style['Title']))
+    elements.append(Spacer(1, 12))
+
+    data = [["Server ID","Start","End","Status"]]
+    for inc in incidents:
+        data.append([inc[1], inc[2], inc[3], inc[4]])
+
+    elements.append(Table(data))
+    doc.build(elements)
+    buffer.seek(0)
+
+    return send_file(buffer,
+                     as_attachment=True,
+                     download_name="incident_report.pdf",
+                     mimetype='application/pdf')
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
 
-if __name__=="__main__":
-    app.run(host="0.0.0.0",port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
