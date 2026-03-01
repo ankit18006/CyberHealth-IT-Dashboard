@@ -1,42 +1,68 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h1>Admin Analytics</h1>
+<h1>Admin Analytics Panel</h1>
 
 <div class="cards">
-    <div class="card yellow">
-        <h3>Total Users</h3>
-        <h2>{{ users|length }}</h2>
+    <div class="card green">
+        <h3>Combined SLA</h3>
+        <h2>{{ combined_sla }}%</h2>
     </div>
 
-    <div class="card red">
-        <h3>Total Incidents</h3>
-        <h2>{{ incidents|length }}</h2>
+    <div class="card yellow">
+        <h3>Security Risk</h3>
+        <h2>{{ risk_score }}% ({{ risk_level }})</h2>
     </div>
 </div>
 
-<div class="table-box">
-<h3>User List</h3>
+<h3>Monthly SLA Trend</h3>
+<canvas id="monthlySLA"></canvas>
+
+<script>
+new Chart(document.getElementById("monthlySLA"),{
+    type:'line',
+    data:{
+        labels: {{ monthly_labels|safe }},
+        datasets:[{
+            label:'Monthly SLA %',
+            data: {{ monthly_sla|safe }},
+            borderColor:'#00f5d4',
+            tension:0.4,
+            fill:false
+        }]
+    },
+    options:{
+        plugins:{legend:{labels:{color:'#fff'}}},
+        scales:{
+            x:{ticks:{color:'#fff'}},
+            y:{ticks:{color:'#fff'}}
+        }
+    }
+});
+</script>
+
+<h3>All Systems</h3>
 <table>
 <tr>
 <th>Name</th>
-<th>Email</th>
-<th>Role</th>
+<th>IP</th>
+<th>Status</th>
+<th>Response</th>
 </tr>
 
-{% for user in users %}
+{% for server in servers %}
 <tr>
-<td>{{ user[1] }}</td>
-<td>{{ user[2] }}</td>
-<td>{{ user[4] }}</td>
+<td>{{ server[1] }}</td>
+<td>{{ server[2] }}</td>
+<td>{{ server[4] }}</td>
+<td>{{ server[5] }} ms</td>
 </tr>
 {% endfor %}
-
 </table>
-</div>
 
-<div class="table-box">
 <h3>Incident Logs</h3>
+<a href="/export_incidents_pdf" class="btn">Download PDF</a>
+
 <table>
 <tr>
 <th>Server ID</th>
@@ -54,6 +80,22 @@
 </tr>
 {% endfor %}
 </table>
-</div>
+
+<h3>Login Attempts</h3>
+<table>
+<tr>
+<th>Email</th>
+<th>Time</th>
+<th>Status</th>
+</tr>
+
+{% for attempt in login_attempts %}
+<tr>
+<td>{{ attempt[1] }}</td>
+<td>{{ attempt[2] }}</td>
+<td>{{ "Success" if attempt[3]==1 else "Failed" }}</td>
+</tr>
+{% endfor %}
+</table>
 
 {% endblock %}
