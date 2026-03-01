@@ -1,21 +1,21 @@
-from flask import Flask, render_template, request, redirect, session, send_file
+import os
 import sqlite3
 import requests
-import datetime
-import psutil
 import threading
 import time
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
-app.secret_key = "cyberhealth_enterprise"
+app.secret_key = "supersecret"
 
-# ---------------- DATABASE ----------------
+DATABASE = "database.db"
+
+# ---------------- DATABASE INIT ----------------
 def init_db():
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -31,214 +31,173 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS servers(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
         name TEXT,
-        url TEXT,
-        status TEXT,
-        response_time REAL,
-        date TEXT
+        ip TEXT,
+        user_id INTEGER,
+        status TEXT DEFAULT 'UNKNOWN',
+        response_time REAL DEFAULT 0,
+        total_checks INTEGER DEFAULT 0,
+        failed_checks INTEGER DEFAULT 0
     )
     """)
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS incidents(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        message TEXT,
-        severity TEXT,
-        date TEXT
+        server_id INTEGER,
+        start_time TEXT,
+        status TEXT
     )
     """)
 
-    # Create default admin
     cursor.execute("SELECT * FROM users WHERE role='admin'")
     if not cursor.fetchone():
         cursor.execute("""
         INSERT INTO users(name,email,password,role)
-        VALUES ('Admin','admin@cyber.com',?, 'admin')
-        """, (generate_password_hash("admin123"),))
+        VALUES(?,?,?,?)
+        """, ("Admin", "admin@cyberhealth.com",
+              generate_password_hash("admin123"),
+              "admin"))
 
     conn.commit()
     conn.close()
 
 init_db()
 
-# ---------------- SERVER CHECK ----------------
-def check_server(url):
-    try:
-        start = time.time()
-        r = requests.get(url, timeout=5)
-        response_time = round(time.time() - start,2)
-        return ("UP" if r.status_code==200 else "DOWN", response_time)
-    except:
-        return ("DOWN", 0)
-
-# ---------------- BACKGROUND MONITOR ----------------
-def background_monitor():
+# ---------------- MONITORING THREAD ----------------
+def monitor_servers():
     while True:
-        conn = sqlite3.connect("database.db")
+        conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-
-        cursor.execute("SELECT id,name,url,user_id FROM servers")
+        cursor.execute("SELECT * FROM servers")
         servers = cursor.fetchall()
 
-        for s in servers:
-            status, response = check_server(s[2])
-            cursor.execute("""
-            UPDATE servers SET status=?,response_time=?,date=?
-            WHERE id=?
-            """,(status,response,
-                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),s[0]))
+        for server in servers:
+            try:
+                start = time.time()
+                requests.get(server[2], timeout=5)
+                response_time = round(time.time() - start, 2)
+                status = "UP"
+                failed = server[7]
+            except:
+                response_time = 0
+                status = "DOWN"
+                failed = server[7] + 1
 
-            if status=="DOWN":
                 cursor.execute("""
-                INSERT INTO incidents(user_id,message,severity,date)
-                VALUES (?,?,?,?)
-                """,(s[3],f"{s[1]} is DOWN","High",
-                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
+                INSERT INTO incidents(server_id,start_time,status)
+                VALUES(?,?,?)
+                """, (server[0], datetime.now().strftime("%Y-%m-%d %H:%M"),
+                      "OPEN"))
+
+            total = server[6] + 1
+
+            cursor.execute("""
+            UPDATE servers
+            SET status=?, response_time=?, total_checks=?, failed_checks=?
+            WHERE id=?
+            """, (status, response_time, total, failed, server[0]))
 
         conn.commit()
         conn.close()
-
         time.sleep(30)
 
-if __name__ == "__main__":
-    threading.Thread(target=background_monitor, daemon=True).start()
+threading.Thread(target=monitor_servers, daemon=True).start()
 
-# ---------------- LOGIN ----------------
-@app.route("/", methods=["GET","POST"])
-def login():
-    if request.method=="POST":
-        conn = sqlite3.connect("database.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email=?", (request.form["email"],))
-        user = cursor.fetchone()
-        conn.close()
+# ---------------- ROUTES ----------------
+@app.route("/")
+def home():
+    return redirect("/login")
 
-        if user and check_password_hash(user[3], request.form["password"]):
-            session["user_id"]=user[0]
-            session["role"]=user[4]
-            return redirect("/dashboard")
-
-    return render_template("login.html")
-
-# ---------------- DASHBOARD ----------------
-@app.route("/dashboard", methods=["GET","POST"])
-def dashboard():
-    if "user_id" not in session:
-        return redirect("/")
-
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-
-    if request.method=="POST":
-        status,response = check_server(request.form["url"])
-        cursor.execute("""
-        INSERT INTO servers(user_id,name,url,status,response_time,date)
-        VALUES (?,?,?,?,?,?)
-        """,(session["user_id"],
-             request.form["name"],
-             request.form["url"],
-             status,response,
-             datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
-        conn.commit()
-
-    cursor.execute("SELECT * FROM servers WHERE user_id=?",(session["user_id"],))
-    servers=cursor.fetchall()
-
-    cursor.execute("SELECT COUNT(*) FROM incidents WHERE user_id=?",(session["user_id"],))
-    incidents_count=cursor.fetchone()[0]
-
-    total=len(servers)
-    up=len([s for s in servers if s[4]=="UP"])
-    sla=round((up/total)*100,2) if total>0 else 0
-
-    cpu=psutil.cpu_percent()
-    ram=psutil.virtual_memory().percent
-    disk=psutil.disk_usage('/').percent
-
-    conn.close()
-
-    return render_template("dashboard.html",
-                           servers=servers,
-                           total=total,
-                           up=up,
-                           sla=sla,
-                           cpu=cpu,
-                           ram=ram,
-                           disk=disk,
-                           incidents_count=incidents_count)
-
-# ---------------- ADMIN PANEL ----------------
-@app.route("/admin")
-def admin():
-    if session.get("role")!="admin":
-        return redirect("/dashboard")
-
-    conn=sqlite3.connect("database.db")
-    cursor=conn.cursor()
-
-    cursor.execute("SELECT COUNT(*) FROM servers")
-    total_servers=cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM incidents")
-    total_incidents=cursor.fetchone()[0]
-
-    cursor.execute("SELECT date,status FROM servers")
-    data=cursor.fetchall()
-
-    dates=[d[0] for d in data]
-    status_values=[1 if d[1]=="UP" else 0 for d in data]
-
-    conn.close()
-
-    return render_template("admin.html",
-                           total_servers=total_servers,
-                           total_incidents=total_incidents,
-                           dates=dates,
-                           status_values=status_values)
-
-# ---------------- PDF EXPORT ----------------
-@app.route("/export_pdf")
-def export_pdf():
-    file_path="/tmp/incident_report.pdf"
-    doc=SimpleDocTemplate(file_path,pagesize=A4)
-    styles=getSampleStyleSheet()
-    elements=[Paragraph("CyberHealth Incident Report",styles["Heading1"]),
-              Spacer(1,12)]
-    doc.build(elements)
-    return send_file(file_path,as_attachment=True)
-
-# ---------------- REGISTER ----------------
-@app.route("/register", methods=["GET", "POST"])
+@app.route("/register", methods=["GET","POST"])
 def register():
     if request.method == "POST":
-        password = generate_password_hash(request.form["password"])
-        conn = sqlite3.connect("database.db")
+        conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
 
         cursor.execute("""
         INSERT INTO users(name,email,password,role)
-        VALUES (?,?,?,?)
-        """, (
-            request.form["name"],
-            request.form["email"],
-            password,
-            "user"
-        ))
+        VALUES(?,?,?,?)
+        """,(request.form["name"],
+             request.form["email"],
+             generate_password_hash(request.form["password"]),
+             "user"))
 
         conn.commit()
         conn.close()
-
-        return redirect("/")
+        return redirect("/login")
 
     return render_template("register.html")
 
-# ---------------- LOGOUT ----------------
+@app.route("/login", methods=["GET","POST"])
+def login():
+    if request.method == "POST":
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM users WHERE email=?",
+                       (request.form["email"],))
+        user = cursor.fetchone()
+        conn.close()
+
+        if user and check_password_hash(user[3], request.form["password"]):
+            session["user_id"] = user[0]
+            session["role"] = user[4]
+            return redirect("/dashboard")
+        else:
+            return "Invalid Login"
+
+    return render_template("login.html")
+
+@app.route("/dashboard", methods=["GET","POST"])
+def dashboard():
+    if "user_id" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    if request.method == "POST":
+        cursor.execute("""
+        INSERT INTO servers(name,ip,user_id)
+        VALUES(?,?,?)
+        """,(request.form["name"],
+             request.form["ip"],
+             session["user_id"]))
+        conn.commit()
+
+    if session["role"] == "admin":
+        cursor.execute("SELECT * FROM servers")
+    else:
+        cursor.execute("SELECT * FROM servers WHERE user_id=?",
+                       (session["user_id"],))
+
+    servers = cursor.fetchall()
+    conn.close()
+
+    return render_template("dashboard.html", servers=servers)
+
+@app.route("/admin")
+def admin():
+    if session.get("role") != "admin":
+        return redirect("/dashboard")
+
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    users = cursor.fetchall()
+    cursor.execute("SELECT * FROM incidents")
+    incidents = cursor.fetchall()
+    conn.close()
+
+    return render_template("admin.html",
+                           users=users,
+                           incidents=incidents)
+
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect("/")
+    return redirect("/login")
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=5000)
