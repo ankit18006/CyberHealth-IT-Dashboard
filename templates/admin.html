@@ -1,44 +1,59 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h3 class="mb-4 text-light">Admin Analytics Panel</h3>
+<h1>Admin Analytics</h1>
 
-<div class="row text-center mb-4">
+<div class="cards">
+    <div class="card yellow">
+        <h3>Total Users</h3>
+        <h2>{{ users|length }}</h2>
+    </div>
 
-<div class="col-md-6">
-<div class="card stat-card bg-info">
-<h6>Total Servers</h6>
-<h3>{{ total_servers }}</h3>
-</div>
-</div>
-
-<div class="col-md-6">
-<div class="card stat-card bg-danger">
-<h6>Total Incidents</h6>
-<h3>{{ total_incidents }}</h3>
-</div>
+    <div class="card red">
+        <h3>Total Incidents</h3>
+        <h2>{{ incidents|length }}</h2>
+    </div>
 </div>
 
+<div class="table-box">
+<h3>User List</h3>
+<table>
+<tr>
+<th>Name</th>
+<th>Email</th>
+<th>Role</th>
+</tr>
+
+{% for user in users %}
+<tr>
+<td>{{ user[1] }}</td>
+<td>{{ user[2] }}</td>
+<td>{{ user[4] }}</td>
+</tr>
+{% endfor %}
+
+</table>
 </div>
 
-<div class="card p-4 shadow">
-<h5>Monthly SLA Trend</h5>
-<canvas id="slaChart"></canvas>
-</div>
+<div class="table-box">
+<h3>Incident Logs</h3>
+<table>
+<tr>
+<th>Server ID</th>
+<th>Start</th>
+<th>End</th>
+<th>Status</th>
+</tr>
 
-<script>
-new Chart(document.getElementById("slaChart"), {
-type:"line",
-data:{
-labels: {{ dates|safe }},
-datasets:[{
-label:"Server Status (1=UP, 0=DOWN)",
-data: {{ status_values|safe }},
-borderColor:"#4bc0c0",
-fill:false
-}]
-}
-});
-</script>
+{% for inc in incidents %}
+<tr>
+<td>{{ inc[1] }}</td>
+<td>{{ inc[2] }}</td>
+<td>{{ inc[3] }}</td>
+<td>{{ inc[4] }}</td>
+</tr>
+{% endfor %}
+</table>
+</div>
 
 {% endblock %}
