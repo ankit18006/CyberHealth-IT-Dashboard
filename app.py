@@ -102,7 +102,8 @@ def background_monitor():
 
         time.sleep(30)
 
-threading.Thread(target=background_monitor, daemon=True).start()
+if __name__ == "__main__":
+    threading.Thread(target=background_monitor, daemon=True).start()
 
 # ---------------- LOGIN ----------------
 @app.route("/", methods=["GET","POST"])
