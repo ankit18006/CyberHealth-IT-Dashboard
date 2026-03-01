@@ -109,7 +109,8 @@ def get_monthly_sla():
     c = conn.cursor()
 
     c.execute("""
-    SELECT strftime('%m', timestamp), COUNT(*),
+    SELECT strftime('%m', timestamp),
+           COUNT(*),
            SUM(CASE WHEN status='DOWN' THEN 1 ELSE 0 END)
     FROM checks
     GROUP BY strftime('%m', timestamp)
@@ -163,7 +164,6 @@ def monitoring_loop():
 
             c.execute("SELECT consecutive_fail FROM servers WHERE id=?", (server_id,))
             cons = c.fetchone()[0]
-
             cons = cons + 1 if status == "DOWN" else 0
 
             c.execute("""
@@ -196,9 +196,8 @@ def start_monitor():
         monitor_started = True
         threading.Thread(target=monitoring_loop, daemon=True).start()
 
-@app.before_first_request
-def activate_monitor():
-    start_monitor()
+# Start monitoring immediately (Flask 3 safe)
+start_monitor()
 
 # ---------------- ROUTES ----------------
 @app.route("/")
